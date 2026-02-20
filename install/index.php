@@ -1,129 +1,132 @@
 <?
+
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\ModuleManager;
 
 Loc::loadMessages(__FILE__);
 
+if (class_exists('dev_tools')) {
+    return;
+}
+
 class dev_tools extends CModule
 {
-    var $MODULE_ID = 'dev.tools';
-    var $MODULE_VERSION;
-    var $MODULE_VERSION_DATE;
-    var $MODULE_NAME;
-    var $MODULE_DESCRIPTION;
-    var $MODULE_GROUP_RIGHTS = 'Y';
+    public $MODULE_ID = 'dev.tools';
+    public $MODULE_VERSION;
+    public $MODULE_VERSION_DATE;
+    public $MODULE_NAME;
+    public $MODULE_DESCRIPTION;
+    public $MODULE_GROUP_RIGHTS = 'Y';
 
-    function __construct()
+    public function __construct()
     {
         $arModuleVersion = [];
-        include(__DIR__ . '/../version.php');
+        $versionFile = __DIR__ . '/../version.php';
 
-        $this->MODULE_VERSION = $arModuleVersion['VERSION'];
-        $this->MODULE_VERSION_DATE = $arModuleVersion['VERSION_DATE'];
+        if (file_exists($versionFile)) {
+            try {
+                include($versionFile);
+            } catch (Throwable $e) {
+                AddMessage2Log('DevTools version load error: ' . $e->getMessage(), 'dev.tools');
+            }
+        }
 
-        $this->MODULE_NAME = GetMessage('DEV_TOOLS_MODULE_NAME');
-        $this->MODULE_DESCRIPTION = GetMessage('DEV_TOOLS_MODULE_DESC');
+        $this->MODULE_VERSION = $arModuleVersion['VERSION'] ?? '0.0.0';
+        $this->MODULE_VERSION_DATE = $arModuleVersion['VERSION_DATE'] ?? date('Y-m-d');
+        $this->MODULE_NAME = GetMessage('DEV_TOOLS_MODULE_NAME') ?: 'Dev Tools';
+        $this->MODULE_DESCRIPTION = GetMessage('DEV_TOOLS_MODULE_DESC') ?: 'Инструменты разработчика';
     }
 
-    function DoInstall()
+    public function DoInstall()
     {
         global $APPLICATION;
 
-        ModuleManager::registerModule($this->MODULE_ID);
+        if (ModuleManager::isModuleInstalled($this->MODULE_ID)) {
+            return true;
+        }
 
-        $this->installRights();
-
-        $this->installAdminFiles();
-
-        $APPLICATION->SetTitle(GetMessage('DEV_TOOLS_INSTALL_TITLE'));
-        return true;
+        try {
+            ModuleManager::registerModule($this->MODULE_ID);
+            $this->installRights();
+            $this->installAdminFiles();
+            $APPLICATION->SetTitle(GetMessage('DEV_TOOLS_INSTALL_TITLE'));
+            return true;
+        } catch (Exception $e) {
+            AddMessage2Log('DevTools install error: ' . $e->getMessage(), 'dev.tools');
+            $APPLICATION->ThrowException($e->getMessage());
+            return false;
+        }
     }
 
-    function DoUninstall()
+    public function DoUninstall()
     {
         global $APPLICATION;
 
-        $this->uninstallAdminFiles();
-
-        $this->uninstallRights();
-
-        ModuleManager::unRegisterModule($this->MODULE_ID);
-
-        $APPLICATION->SetTitle(GetMessage('DEV_TOOLS_UNINSTALL_TITLE'));
-        return true;
+        try {
+            $this->uninstallAdminFiles();
+            $this->uninstallRights();
+            ModuleManager::unRegisterModule($this->MODULE_ID);
+            $APPLICATION->SetTitle(GetMessage('DEV_TOOLS_UNINSTALL_TITLE'));
+            return true;
+        } catch (Exception $e) {
+            AddMessage2Log('DevTools uninstall error: ' . $e->getMessage(), 'dev.tools');
+            $APPLICATION->ThrowException($e->getMessage());
+            return false;
+        }
     }
 
-    function installAdminFiles()
+    public function installAdminFiles()
     {
-        global $APPLICATION;
-
         $root = $_SERVER['DOCUMENT_ROOT'];
         $adminPath = $root . '/bitrix/admin';
         $proxyPath = $adminPath . '/dev_tools.php';
 
-        if (!is_dir($adminPath)) {
-            AddMessage2Log("DevTools ERROR: admin path not found: {$adminPath}", 'dev.tools');
+        if (!is_dir($adminPath) || !is_writable($adminPath)) {
+            AddMessage2Log("DevTools: Cannot write to {$adminPath}", 'dev.tools');
             return false;
         }
 
-        if (!is_writable($adminPath)) {
-            AddMessage2Log("DevTools ERROR: admin path not writable: {$adminPath}", 'dev.tools');
-            if (!@touch($proxyPath)) {
-                return false;
+        $proxyContent = "<?php\n" . "/**\n * Proxy file for {$this->MODULE_ID} module\n * Auto-generated. Do not edit.\n */\n" . "require(\$_SERVER[\"DOCUMENT_ROOT\"] . \"/local/modules/{$this->MODULE_ID}/admin/dev_tools.php\");\n";
+
+        try {
+            $result = file_put_contents($proxyPath, $proxyContent, LOCK_EX);
+            if ($result === false) {
+                throw new RuntimeException("Failed to write {$proxyPath}");
             }
-            @unlink($proxyPath);
-        }
-
-        $proxyContent = '<?php' . "\n" .
-            '/**' . "\n" .
-            ' * Proxy file for ' . $this->MODULE_ID . ' module' . "\n" .
-            ' * Auto-generated. Do not edit.' . "\n" .
-            ' */' . "\n" .
-            'require($_SERVER["DOCUMENT_ROOT"] . "/local/modules/' . $this->MODULE_ID . '/admin/dev_tools.php");' . "\n";
-
-        $bytes = @file_put_contents($proxyPath, $proxyContent);
-
-        if ($bytes === false || $bytes === 0) {
-            $error = error_get_last();
-            AddMessage2Log("DevTools ERROR: file_put_contents failed: " . ($error['message'] ?? 'unknown'), 'dev.tools');
+            @chmod($proxyPath, 0644);
+            return true;
+        } catch (Exception $e) {
+            AddMessage2Log('DevTools installAdminFiles error: ' . $e->getMessage(), 'dev.tools');
             return false;
         }
-
-        if (!file_exists($proxyPath)) {
-            AddMessage2Log("DevTools ERROR: proxy file not created: {$proxyPath}", 'dev.tools');
-            return false;
-        }
-
-        @chmod($proxyPath, 0644);
-
-        AddMessage2Log("DevTools OK: proxy file created: {$proxyPath}", 'dev.tools');
-        return true;
     }
 
-    function uninstallAdminFiles()
+    public function uninstallAdminFiles()
     {
-        $root = $_SERVER['DOCUMENT_ROOT'];
-        $adminPath = $root . '/bitrix/admin';
-        $proxyFile = $adminPath . '/dev_tools.php';
+        $proxyFile = $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin/dev_tools.php';
 
-        if (file_exists($proxyFile)) {
-            $content = @file_get_contents($proxyFile);
-            if ($content && strpos($content, $this->MODULE_ID) !== false) {
-                @unlink($proxyFile);
+        try {
+            if (file_exists($proxyFile)) {
+                $content = file_get_contents($proxyFile);
+                if ($content && strpos($content, $this->MODULE_ID) !== false) {
+                    @unlink($proxyFile);
+                }
             }
+            return true;
+        } catch (Exception $e) {
+            AddMessage2Log('DevTools uninstallAdminFiles error: ' . $e->getMessage(), 'dev.tools');
+            return false;
         }
-
-        return true;
     }
 
-    function hasModuleRightsTable()
+    public function hasModuleRightsTable()
     {
         global $DB;
         $res = $DB->Query("SHOW TABLES LIKE 'b_module_right'");
         return ($res->Fetch() !== false);
     }
 
-    function installRights()
+    public function installRights()
     {
         if (!$this->hasModuleRightsTable()) {
             return true;
@@ -133,7 +136,6 @@ class dev_tools extends CModule
 
         try {
             $moduleId = $DB->ForSql($this->MODULE_ID);
-
             $DB->Query("DELETE FROM b_module_right WHERE MODULE_ID = '{$moduleId}'");
 
             $arRights = [
@@ -144,20 +146,19 @@ class dev_tools extends CModule
             foreach ($arRights as $arRight) {
                 $groupId = $DB->ForSql($arRight['GROUP_ID']);
                 $right = $DB->ForSql($arRight['RIGHT']);
-
                 $DB->Query(
                     "INSERT INTO b_module_right (MODULE_ID, GROUP_ID, RIGHT) 
                     VALUES ('{$moduleId}', '{$groupId}', '{$right}')"
                 );
             }
-        } catch (\Exception $e) {
-            AddMessage2Log("DevTools installRights error: " . $e->getMessage(), 'dev.tools');
+        } catch (Exception $e) {
+            AddMessage2Log('DevTools installRights error: ' . $e->getMessage(), 'dev.tools');
         }
 
         return true;
     }
 
-    function uninstallRights()
+    public function uninstallRights()
     {
         if (!$this->hasModuleRightsTable()) {
             return true;
@@ -168,8 +169,8 @@ class dev_tools extends CModule
         try {
             $moduleId = $DB->ForSql($this->MODULE_ID);
             $DB->Query("DELETE FROM b_module_right WHERE MODULE_ID = '{$moduleId}'");
-        } catch (\Exception $e) {
-            AddMessage2Log("DevTools uninstallRights error: " . $e->getMessage(), 'dev.tools');
+        } catch (Exception $e) {
+            AddMessage2Log('DevTools uninstallRights error: ' . $e->getMessage(), 'dev.tools');
         }
 
         return true;

@@ -2,11 +2,8 @@
 require_once($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php');
 require_once($_SERVER['DOCUMENT_ROOT'] . '/local/modules/dev.tools/include.php');
 
-
 use Bitrix\Main\Localization\Loc;
-
 Loc::loadMessages(__FILE__);
-
 
 if (!$USER->IsAdmin()) {
     $APPLICATION->AuthForm(GetMessage('DEV_TOOLS_ACCESS_DENIED'));
@@ -15,11 +12,64 @@ if (!$USER->IsAdmin()) {
 }
 
 $APPLICATION->SetAdditionalCSS('/local/modules/dev.tools/admin/styles/dev-tools.css');
+\Bitrix\Main\Page\Asset::getInstance()->addJs('/local/modules/dev.tools/admin/scripts/agents.js');
 
 $MODULE_ID = 'dev.tools';
 $aMess = [];
 $debugMode = DevToolsHelper::isDebugMode();
 $cacheDisabled = DevToolsHelper::isCacheDisabled();
+
+$agentsList = [];
+if (method_exists('CAgent', 'GetList')) {
+    $dbAgents = CAgent::GetList(['NEXT_EXEC' => 'ASC'], ['ACTIVE' => 'Y']);
+    while ($agent = $dbAgents->Fetch()) {
+        $agentsList[] = $agent;
+    }
+}
+
+$redisStatus = 'unavailable';
+$memcachedStatus = 'unavailable';
+
+if (class_exists('\Redis')) {
+    try {
+        $redisConfig = COption::GetOptionString('main', 'component_cache_redis', '');
+        if ($redisConfig) {
+            $config = @unserialize($redisConfig);
+            if ($config && is_array($config)) {
+                $redis = new Redis();
+                if ($redis->connect($config['host'] ?? '127.0.0.1', $config['port'] ?? 6379, $config['timeout'] ?? 0)) {
+                    if (!empty($config['password'])) {
+                        $redis->auth($config['password']);
+                    }
+                    $redis->ping();
+                    $redisStatus = 'connected';
+                    $redis->close();
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        $redisStatus = 'error';
+    }
+}
+
+if (class_exists('\Memcached')) {
+    try {
+        $memcachedConfig = COption::GetOptionString('main', 'component_cache_memcache', '');
+        if ($memcachedConfig) {
+            $config = @unserialize($memcachedConfig);
+            if ($config && is_array($config)) {
+                $memcached = new Memcached();
+                $memcached->addServer($config['host'] ?? '127.0.0.1', $config['port'] ?? 11211);
+                if ($memcached->getStats()) {
+                    $memcachedStatus = 'connected';
+                }
+                $memcached->quit();
+            }
+        }
+    } catch (Throwable $e) {
+        $memcachedStatus = 'error';
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     $action = $_POST['dev_action'] ?? '';
@@ -27,40 +77,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     if ($action === 'clear_cache') {
         $cacheOptions = [
             'components' => isset($_POST['cache_components']),
-            'managed'    => isset($_POST['cache_managed']),
-            'html'       => isset($_POST['cache_html']),
-            'menu'       => isset($_POST['cache_menu']),
-            'browser'    => isset($_POST['cache_browser']),
+            'managed' => isset($_POST['cache_managed']),
+            'html' => isset($_POST['cache_html']),
+            'menu' => isset($_POST['cache_menu']),
+            'browser' => isset($_POST['cache_browser']),
+            'redis' => isset($_POST['cache_redis']),
+            'memcached' => isset($_POST['cache_memcached']),
         ];
 
-        if (!array_sum($cacheOptions)) {
+        if (!array_sum(array_filter($cacheOptions))) {
             $cacheOptions = [
                 'components' => true,
-                'managed'    => true,
-                'html'       => true,
-                'menu'       => true,
-                'browser'    => true,
+                'managed' => true,
+                'html' => true,
+                'menu' => true,
+                'browser' => true,
             ];
         }
 
         DevToolsHelper::clearCache($cacheOptions);
         $aMess[] = ['type' => 'success', 'text' => GetMessage('DEV_TOOLS_CACHE_CLEARED')];
-    } elseif ($action === 'toggle_debug') {
+    }
+    elseif ($action === 'toggle_debug') {
         $newMode = !$debugMode;
         DevToolsHelper::setDebugMode($newMode);
         LocalRedirect($APPLICATION->GetCurPageParam('dev_status=updated', ['dev_status']));
-    } elseif ($action === 'toggle_cache') {
+    }
+    elseif ($action === 'toggle_cache') {
         $newDisabled = !$cacheDisabled;
         DevToolsHelper::setCacheDisabled($newDisabled);
         $cacheDisabled = $newDisabled;
         $aMess[] = [
             'type' => 'info',
-            'text' => $newDisabled ? GetMessage('DEV_TOOLS_CACHE_DISABLED') : GetMessage('DEV_TOOLS_CACHE_ENABLED'),
+            'text' => $newDisabled ? GetMessage('DEV_TOOLS_CACHE_DISABLED') : GetMessage('DEV_TOOLS_CACHE_ENABLED')
         ];
-    } elseif ($action === 'run_agents') {
+    }
+    elseif ($action === 'run_agents') {
         DevToolsHelper::runAgents();
         $aMess[] = ['type' => 'success', 'text' => GetMessage('DEV_TOOLS_AGENTS_RUN')];
     }
+    elseif ($action === 'run_selected_agents') {
+        $selectedAgents = $_POST['agent_ids'] ?? [];
+        if (!empty($selectedAgents)) {
+            $results = DevToolsHelper::runAgents($selectedAgents);
+            $successCount = count(array_filter($results, fn($r) => $r['success']));
+            $aMess[] = [
+                'type' => 'success',
+                'text' => sprintf(GetMessage('DEV_TOOLS_AGENTS_RUN_SELECTED'), $successCount, count($results))
+            ];
+        } else {
+            $aMess[] = ['type' => 'warning', 'text' => GetMessage('DEV_TOOLS_AGENTS_NONE_SELECTED')];
+        }
+    }
+    elseif ($action === 'view_log') {}
 }
 
 $APPLICATION->SetTitle(GetMessage('DEV_TOOLS_PAGE_TITLE'));
@@ -69,7 +138,6 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 
     <div class="dev-tools-wrap">
 
-        <!-- 🔔 Сообщения -->
         <? foreach ($aMess as $msg): ?>
             <div class="dev-alert dev-alert--<?= $msg['type'] ?>">
                 <span><?= htmlspecialcharsbx($msg['text']) ?></span>
@@ -91,7 +159,10 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                         </span>
                         </div>
                         <div class="dev-desc">
-                            <?= $cacheDisabled ? GetMessage('DEV_TOOLS_CACHE_STATE_DESC_DISABLED') : GetMessage('DEV_TOOLS_CACHE_STATE_DESC_ENABLED') ?>
+                            <?= $cacheDisabled
+                                ? GetMessage('DEV_TOOLS_CACHE_STATE_DESC_DISABLED')
+                                : GetMessage('DEV_TOOLS_CACHE_STATE_DESC_ENABLED')
+                            ?>
                         </div>
                     </div>
                     <button type="submit" name="dev_action" value="toggle_cache"
@@ -140,6 +211,25 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                         <input type="checkbox" name="cache_browser">
                         <span class="dev-checkbox__label"><?= GetMessage('DEV_TOOLS_CACHE_TYPE_BROWSER') ?></span>
                     </label>
+                    <label class="dev-checkbox">
+                        <input type="checkbox" name="cache_redis" <?= $redisStatus === 'connected' ? '' : 'disabled' ?>>
+                        <span class="dev-checkbox__label">
+                        Redis
+                        <small class="dev-badge dev-badge--<?= $redisStatus ?>">
+                            <?= GetMessage('DEV_TOOLS_CACHE_BACKEND_' . strtoupper($redisStatus)) ?>
+                        </small>
+                    </span>
+                    </label>
+
+                    <label class="dev-checkbox">
+                        <input type="checkbox" name="cache_memcached" <?= $memcachedStatus === 'connected' ? '' : 'disabled' ?>>
+                        <span class="dev-checkbox__label">
+                        Memcached
+                        <small class="dev-badge dev-badge--<?= $memcachedStatus ?>">
+                            <?= GetMessage('DEV_TOOLS_CACHE_BACKEND_' . strtoupper($memcachedStatus)) ?>
+                        </small>
+                    </span>
+                    </label>
                 </div>
 
                 <div class="dev-row" style="margin-top: 15px;">
@@ -149,6 +239,110 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                         <?= GetMessage('DEV_TOOLS_CACHE_BTN_CLEAR') ?>
                     </button>
                 </div>
+            </form>
+        </div>
+
+        <div class="dev-card">
+            <div class="dev-card__title">
+                <?= GetMessage('DEV_TOOLS_CARD_SELECTIVE_AGENTS') ?>
+                <span class="dev-badge"><?= count($agentsList) ?> шт.</span>
+            </div>
+
+            <form method="POST" id="agents-form">
+                <?= bitrix_sessid_post() ?>
+
+                <? if (!empty($agentsList)): ?>
+                    <div class="agents-toolbar" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; align-items: center;">
+                        <input type="text" id="agent-search" placeholder="🔍 Поиск по функции или модулю..."
+                               style="flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
+
+                        <button type="button" onclick="DevToolsAgents.toggleOverdueAgents()" class="dev-btn dev-btn--warning" style="font-size: 12px; padding: 6px 12px;">
+                            ⏰ Только просроченные
+                        </button>
+                        <button type="button" onclick="DevToolsAgents.clearSelection()" class="dev-btn dev-btn--secondary" style="font-size: 12px; padding: 6px 12px;">
+                            ✕ Очистить выбор
+                        </button>
+                    </div>
+
+                    <div style="overflow-x: auto; max-height: 400px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px;">
+                        <table class="adm-list-table" style="width: 100%; min-width: 600px;">
+                            <thead>
+                            <tr class="adm-list-table-heading">
+                                <th style="width: 40px; text-align: center;">☑</th>
+                                <th>ID</th>
+                                <th>Функция</th>
+                                <th>Модуль</th>
+                                <th>Интервал</th>
+                                <th>След. запуск</th>
+                                <th style="width: 90px;">Статус</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <?
+                            $now = time();
+                            foreach ($agentsList as $agent):
+                                $nextExec = MakeTimeStamp($agent['NEXT_EXEC'], 'FULL');
+                                $isOverdue = ($nextExec && $nextExec < $now);
+                                $module = $agent['MODULE_ID'] ?: 'main';
+
+                                $funcName = htmlspecialcharsbx($agent['NAME']);
+                                $funcTitle = $funcName;
+                                if (strlen($funcName) > 50) {
+                                    $funcName = mb_substr($funcName, 0, 50) . '...';
+                                }
+                                ?>
+                                <tr class="adm-list-table-row agent-row"
+                                    data-module="<?= $module ?>"
+                                    data-overdue="<?= $isOverdue ? '1' : '0' ?>"
+                                    data-func="<?= htmlspecialcharsbx(strtolower($agent['NAME'])) ?>"
+                                    style="<?= $isOverdue ? 'background: #fff8f8;' : '' ?>">
+                                    <td style="text-align: center;">
+                                        <input type="checkbox" name="agent_ids[]" value="<?= (int)$agent['ID'] ?>"
+                                               class="agent-checkbox" <?= $isOverdue ? 'checked' : '' ?>>
+                                    </td>
+                                    <td style="font-weight: bold; color: #2480c2;">#<?= (int)$agent['ID'] ?></td>
+                                    <td>
+                                        <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-size: 11px;" title="<?= $funcTitle ?>">
+                                            <?= $funcName ?>
+                                        </code>
+                                    </td>
+                                    <td>
+                                    <span class="dev-badge dev-badge--info" style="font-size: 10px;">
+                                        <?= htmlspecialcharsbx($module) ?>
+                                    </span>
+                                    </td>
+                                    <td style="font-size: 12px; color: #666;">
+                                        <?= ($agent['AGENT_INTERVAL'] > 0) ? $agent['AGENT_INTERVAL'] . ' сек.' : '—' ?>
+                                    </td>
+                                    <td style="font-size: 12px; white-space: nowrap;">
+                                        <?= $agent['NEXT_EXEC'] ?>
+                                    </td>
+                                    <td>
+                                        <? if ($isOverdue): ?>
+                                            <span class="dev-badge dev-badge--error" style="font-size: 10px;">⏰ Просрочен</span>
+                                        <? else: ?>
+                                            <span class="dev-badge dev-badge--success" style="font-size: 10px;">✓ В норме</span>
+                                        <? endif; ?>
+                                    </td>
+                                </tr>
+                            <? endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="dev-row" style="margin-top: 15px; justify-content: flex-end; align-items: center;">
+                <span style="color: #666; font-size: 13px; margin-right: 15px;">
+                    Выбрано: <strong id="selected-count" style="color: #2480c2;">0</strong> из <?= count($agentsList) ?>
+                </span>
+                        <button type="submit" name="dev_action" value="run_selected_agents" class="dev-btn dev-btn--primary" style="padding: 10px 24px;">
+                            🚀 Запустить выбранные
+                        </button>
+                    </div>
+                <? else: ?>
+                    <div class="dev-alert dev-alert--info">
+                        <span><?= GetMessage('DEV_TOOLS_AGENTS_EMPTY') ?></span>
+                    </div>
+                <? endif; ?>
             </form>
         </div>
 
@@ -188,7 +382,59 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 
         <div class="dev-card">
             <div class="dev-card__title"><?= GetMessage('DEV_TOOLS_CARD_LOGS') ?></div>
-            <div class="dev-log"><?= htmlspecialcharsbx(DevToolsHelper::getLastErrorLog(30)) ?></div>
+
+            <form method="POST" style="margin-bottom: 15px;">
+                <?= bitrix_sessid_post() ?>
+                <div class="dev-row">
+                    <div style="flex: 1;">
+                        <input type="text" name="log_custom_path"
+                               placeholder="<?= GetMessage('DEV_TOOLS_LOG_PATH_PLACEHOLDER') ?>"
+                               value="<?= htmlspecialcharsbx($_POST['log_custom_path'] ?? '') ?>"
+                               style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                    </div>
+                    <button type="submit" name="dev_action" value="view_log" class="dev-btn dev-btn--secondary">
+                        <?= GetMessage('DEV_TOOLS_LOG_BTN_LOAD') ?>
+                    </button>
+                </div>
+
+                <? $registeredLogs = DevToolsHelper::getRegisteredLogFiles(); ?>
+                <? if (!empty($registeredLogs)): ?>
+                    <div style="margin-top: 8px; font-size: 12px; color: #666;">
+                        <?= GetMessage('DEV_TOOLS_LOG_REGISTERED') ?>:
+                        <? foreach ($registeredLogs as $path => $label): ?>
+                            <a href="#" onclick="document.querySelector('input[name=\'log_custom_path\']').value='<?= addslashes($path) ?>'; return false;"
+                               style="margin-left: 5px; color: #2480c2;"><?= htmlspecialcharsbx($label) ?></a>
+                        <? endforeach; ?>
+                    </div>
+                <? endif; ?>
+            </form>
+
+            <?
+            $logPath = $_POST['log_custom_path'] ?? null;
+            echo '<div class="dev-log">' . htmlspecialcharsbx(DevToolsHelper::getLastErrorLog(30, $logPath)) . '</div>';
+            ?>
+        </div>
+
+        <div class="dev-card">
+            <div class="dev-card__title"><?= GetMessage('DEV_TOOLS_CARD_CACHE_BACKENDS') ?></div>
+            <table class="adm-list-table">
+                <tr>
+                    <td>Redis</td>
+                    <td>
+                    <span class="dev-badge dev-badge--<?= $redisStatus ?>">
+                        <?= GetMessage('DEV_TOOLS_CACHE_BACKEND_' . strtoupper($redisStatus)) ?>
+                    </span>
+                    </td>
+                </tr>
+                <tr>
+                    <td>Memcached</td>
+                    <td>
+                    <span class="dev-badge dev-badge--<?= $memcachedStatus ?>">
+                        <?= GetMessage('DEV_TOOLS_CACHE_BACKEND_' . strtoupper($memcachedStatus)) ?>
+                    </span>
+                    </td>
+                </tr>
+            </table>
         </div>
 
         <div class="dev-card">
@@ -215,4 +461,4 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 
     </div>
 
-<?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php'); ?>
+<?require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php'); ?>
