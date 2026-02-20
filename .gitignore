@@ -1,0 +1,13 @@
+.DS_Store
+Thumbs.db
+
+*.log
+cache/
+
+.idea/
+.vscode/
+*.swp
+*.swo
+
+.local/
+dbconn.php
