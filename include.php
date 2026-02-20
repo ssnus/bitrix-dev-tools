@@ -4,11 +4,31 @@ if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) {
 }
 
 use Bitrix\Main\Localization\Loc;
+use Bitrix\Main\EventManager;
 
 Loc::loadMessages(__FILE__);
 
 class DevToolsHelper
 {
+    public static function applyDebugSettings()
+    {
+        if (!self::isDebugMode()) {
+            return;
+        }
+
+        @ini_set('display_errors', '1');
+        error_reporting(E_ALL);
+
+        if (!defined('DEBUG')) {
+            define('DEBUG', true);
+        }
+    }
+
+    public static function init()
+    {
+        $eventManager = EventManager::getInstance();
+        $eventManager->addEventHandler('main', 'OnProlog', ['DevToolsHelper', 'applyDebugSettings']);
+    }
 
     public static function clearCache($options = [])
     {
@@ -92,25 +112,62 @@ class DevToolsHelper
         return \COption::GetOptionString('dev.tools', 'cache_disabled', 'N') === 'Y';
     }
 
+    private static function getSettingsFilePath()
+    {
+        return $_SERVER['DOCUMENT_ROOT'] . '/bitrix/.settings_extra.php';
+    }
+
     public static function setDebugMode($enabled = true)
     {
-        $optionName = 'dev_tools_debug_mode';
-        \COption::SetOptionString('dev.tools', $optionName, $enabled ? 'Y' : 'N');
+        $path = self::getSettingsFilePath();
 
-        if ($enabled) {
-            @ini_set('display_errors', '1');
-            error_reporting(E_ALL);
-            if (!defined('DEBUG')) {
-                define('DEBUG', true);
+        $settings = [];
+        if (file_exists($path)) {
+            $settings = include($path);
+            if (!is_array($settings)) {
+                $settings = [];
             }
         }
 
-        return $enabled;
+        if (!isset($settings['error_handling'])) {
+            $settings['error_handling'] = ['value' => [], 'readonly' => false];
+        }
+        if (!isset($settings['error_handling']['value'])) {
+            $settings['error_handling']['value'] = [];
+        }
+
+        $settings['error_handling']['value']['debug'] = ($enabled === true);
+
+        $content = "<?php\nreturn " . var_export($settings, true) . ";\n";
+        $result = @file_put_contents($path, $content);
+
+        if ($result === false) {
+            return false;
+        }
+
+        self::applyDebugSettings();
+
+        return true;
     }
 
     public static function isDebugMode()
     {
-        return \COption::GetOptionString('dev.tools', 'dev_tools_debug_mode', 'N') === 'Y';
+        $path = self::getSettingsFilePath();
+
+        if (!file_exists($path)) {
+            return false;
+        }
+
+        $settings = include($path);
+
+        if (
+            is_array($settings) &&
+            isset($settings['error_handling']['value']['debug'])
+        ) {
+            return $settings['error_handling']['value']['debug'] === true;
+        }
+
+        return false;
     }
 
     public static function runAgents()
@@ -165,3 +222,5 @@ class DevToolsHelper
         }
     }
 }
+
+DevToolsHelper::init();

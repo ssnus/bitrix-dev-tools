@@ -57,8 +57,26 @@ rm dev.tools.zip
 **Файл:** `/bitrix/admin/dev_tools.php`
 
 ```php
-<?php
+<?
 require($_SERVER["DOCUMENT_ROOT"] . "/local/modules/dev.tools/admin/dev_tools.php");
+```
+
+## ⚙️ Настройка после установки
+
+### Автоматическая настройка
+При установке модуль автоматически пропишет себя в файл `/local/php_interface/init.php`.
+
+### Ручная настройка (если нужно)
+Если режим отладки не работает после установки, добавьте эту строку в файл `/local/php_interface/init.php`:
+
+```php
+<?
+if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) die();
+
+// Подключение DevTools
+if (file_exists($_SERVER["DOCUMENT_ROOT"] . "/local/modules/dev.tools/include.php")) {
+    require_once $_SERVER["DOCUMENT_ROOT"] . "/local/modules/dev.tools/include.php";
+}
 ```
 ## 🎯 Использование
 
