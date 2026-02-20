@@ -29,7 +29,7 @@
 # 1. Переходим в папку для модулей
 cd local/modules/
 
-# 2. Скачиваем архив с GitHub (замените ТВОЙ-НИК на ваш никнейм)
+# 2. Скачиваем архив с GitHub 
 curl -L https://github.com/ssnus/bitrix-dev-tools/archive/refs/heads/master.zip -o dev.tools.zip
 
 # 3. Распаковываем архив
