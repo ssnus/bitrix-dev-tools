@@ -48,11 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     } elseif ($action === 'toggle_debug') {
         $newMode = !$debugMode;
         DevToolsHelper::setDebugMode($newMode);
-        $debugMode = $newMode;
-        $aMess[] = [
-            'type' => 'info',
-            'text' => $newMode ? GetMessage('DEV_TOOLS_DEBUG_ENABLED') : GetMessage('DEV_TOOLS_DEBUG_DISABLED'),
-        ];
+        LocalRedirect($APPLICATION->GetCurPageParam('dev_status=updated', ['dev_status']));
     } elseif ($action === 'toggle_cache') {
         $newDisabled = !$cacheDisabled;
         DevToolsHelper::setCacheDisabled($newDisabled);
