@@ -36,7 +36,7 @@ curl -L https://github.com/ssnus/bitrix-dev-tools/archive/refs/heads/master.zip 
 unzip dev.tools.zip
 
 # 4. Переименовываем папку в нужное имя модуля
-mv bitrix-dev-tools-main dev.tools
+mv bitrix-dev-tools-master dev.tools
 
 # 5. Удаляем архив
 rm dev.tools.zip
