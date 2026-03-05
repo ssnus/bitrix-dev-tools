@@ -1,21 +1,37 @@
-<?
+<?php
 require_once($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php');
-require_once($_SERVER['DOCUMENT_ROOT'] . '/local/modules/dev.tools/include.php');
+$modulePath = getLocalPath('modules/dev.tools/include.php');
+if ($modulePath) {
+    require_once($_SERVER['DOCUMENT_ROOT'] . $modulePath);
+} else {
+    ShowError('dev.tools module include.php not found');
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php');
+    die();
+}
 
 use Bitrix\Main\Localization\Loc;
 Loc::loadMessages(__FILE__);
 
-if (!$USER->IsAdmin()) {
+$POST_RIGHT = $APPLICATION->GetGroupRight('dev.tools');
+if ($POST_RIGHT == 'D') {
     $APPLICATION->AuthForm(GetMessage('DEV_TOOLS_ACCESS_DENIED'));
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php');
     die();
 }
 
-$APPLICATION->SetAdditionalCSS('/local/modules/dev.tools/admin/styles/dev-tools.css');
-\Bitrix\Main\Page\Asset::getInstance()->addJs('/local/modules/dev.tools/admin/scripts/agents.js');
+$APPLICATION->SetAdditionalCSS(getLocalPath('modules/dev.tools/admin/styles/dev-tools.css'));
+\Bitrix\Main\Page\Asset::getInstance()->addJs(getLocalPath('modules/dev.tools/admin/scripts/agents.js'));
 
 $MODULE_ID = 'dev.tools';
 $aMess = [];
+
+if (!class_exists('DevToolsHelper')) {
+    $modulePath = getLocalPath('modules/dev.tools/include.php');
+    if ($modulePath) {
+        require_once $_SERVER['DOCUMENT_ROOT'] . $modulePath;
+    }
+}
+
 $debugMode = DevToolsHelper::isDebugMode();
 $cacheDisabled = DevToolsHelper::isCacheDisabled();
 
@@ -74,62 +90,67 @@ if (class_exists('\Memcached')) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     $action = $_POST['dev_action'] ?? '';
 
-    if ($action === 'clear_cache') {
-        $cacheOptions = [
-            'components' => isset($_POST['cache_components']),
-            'managed' => isset($_POST['cache_managed']),
-            'html' => isset($_POST['cache_html']),
-            'menu' => isset($_POST['cache_menu']),
-            'browser' => isset($_POST['cache_browser']),
-            'redis' => isset($_POST['cache_redis']),
-            'memcached' => isset($_POST['cache_memcached']),
-        ];
-
-        if (!array_sum(array_filter($cacheOptions))) {
+    // require W rights to perform actions
+    if ($POST_RIGHT >= 'W') {
+        if ($action === 'clear_cache') {
             $cacheOptions = [
-                'components' => true,
-                'managed' => true,
-                'html' => true,
-                'menu' => true,
-                'browser' => true,
+                'components' => isset($_POST['cache_components']),
+                'managed' => isset($_POST['cache_managed']),
+                'html' => isset($_POST['cache_html']),
+                'menu' => isset($_POST['cache_menu']),
+                'browser' => isset($_POST['cache_browser']),
+                'redis' => isset($_POST['cache_redis']),
+                'memcached' => isset($_POST['cache_memcached']),
             ];
-        }
 
-        DevToolsHelper::clearCache($cacheOptions);
-        $aMess[] = ['type' => 'success', 'text' => GetMessage('DEV_TOOLS_CACHE_CLEARED')];
-    }
-    elseif ($action === 'toggle_debug') {
-        $newMode = !$debugMode;
-        DevToolsHelper::setDebugMode($newMode);
-        LocalRedirect($APPLICATION->GetCurPageParam('dev_status=updated', ['dev_status']));
-    }
-    elseif ($action === 'toggle_cache') {
-        $newDisabled = !$cacheDisabled;
-        DevToolsHelper::setCacheDisabled($newDisabled);
-        $cacheDisabled = $newDisabled;
-        $aMess[] = [
-            'type' => 'info',
-            'text' => $newDisabled ? GetMessage('DEV_TOOLS_CACHE_DISABLED') : GetMessage('DEV_TOOLS_CACHE_ENABLED')
-        ];
-    }
-    elseif ($action === 'run_agents') {
-        DevToolsHelper::runAgents();
-        $aMess[] = ['type' => 'success', 'text' => GetMessage('DEV_TOOLS_AGENTS_RUN')];
-    }
-    elseif ($action === 'run_selected_agents') {
-        $selectedAgents = $_POST['agent_ids'] ?? [];
-        if (!empty($selectedAgents)) {
-            $results = DevToolsHelper::runAgents($selectedAgents);
-            $successCount = count(array_filter($results, fn($r) => $r['success']));
-            $aMess[] = [
-                'type' => 'success',
-                'text' => sprintf(GetMessage('DEV_TOOLS_AGENTS_RUN_SELECTED'), $successCount, count($results))
-            ];
-        } else {
-            $aMess[] = ['type' => 'warning', 'text' => GetMessage('DEV_TOOLS_AGENTS_NONE_SELECTED')];
+            if (!array_sum(array_filter($cacheOptions))) {
+                $cacheOptions = [
+                    'components' => true,
+                    'managed' => true,
+                    'html' => true,
+                    'menu' => true,
+                    'browser' => true,
+                ];
+            }
+
+            DevToolsHelper::clearCache($cacheOptions);
+            $aMess[] = ['type' => 'success', 'text' => GetMessage('DEV_TOOLS_CACHE_CLEARED')];
         }
+        elseif ($action === 'toggle_debug') {
+            $newMode = !$debugMode;
+            DevToolsHelper::setDebugMode($newMode);
+            LocalRedirect($APPLICATION->GetCurPageParam('dev_status=updated', ['dev_status']));
+        }
+        elseif ($action === 'toggle_cache') {
+            $newDisabled = !$cacheDisabled;
+            DevToolsHelper::setCacheDisabled($newDisabled);
+            $cacheDisabled = $newDisabled;
+            $aMess[] = [
+                'type' => 'info',
+                'text' => $newDisabled ? GetMessage('DEV_TOOLS_CACHE_DISABLED') : GetMessage('DEV_TOOLS_CACHE_ENABLED')
+            ];
+        }
+        elseif ($action === 'run_agents') {
+            DevToolsHelper::runAgents();
+            $aMess[] = ['type' => 'success', 'text' => GetMessage('DEV_TOOLS_AGENTS_RUN')];
+        }
+        elseif ($action === 'run_selected_agents') {
+            $selectedAgents = $_POST['agent_ids'] ?? [];
+            if (!empty($selectedAgents)) {
+                $results = DevToolsHelper::runAgents($selectedAgents);
+                $successCount = count(array_filter($results, fn($r) => $r['success']));
+                $aMess[] = [
+                    'type' => 'success',
+                    'text' => sprintf(GetMessage('DEV_TOOLS_AGENTS_RUN_SELECTED'), $successCount, count($results))
+                ];
+            } else {
+                $aMess[] = ['type' => 'warning', 'text' => GetMessage('DEV_TOOLS_AGENTS_NONE_SELECTED')];
+            }
+        }
+        elseif ($action === 'view_log') {}
+    } else {
+        $aMess[] = ['type' => 'error', 'text' => GetMessage('DEV_TOOLS_ACCESS_DENIED')];
     }
-    elseif ($action === 'view_log') {}
 }
 
 $APPLICATION->SetTitle(GetMessage('DEV_TOOLS_PAGE_TITLE'));
@@ -138,11 +159,11 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 
     <div class="dev-tools-wrap">
 
-        <? foreach ($aMess as $msg): ?>
+        <?php foreach ($aMess as $msg): ?>
             <div class="dev-alert dev-alert--<?= $msg['type'] ?>">
                 <span><?= htmlspecialcharsbx($msg['text']) ?></span>
             </div>
-        <? endforeach; ?>
+        <?php endforeach; ?>
 
         <div class="dev-card">
             <div class="dev-card__title"><?= GetMessage('DEV_TOOLS_CARD_CACHE_CONTROL') ?></div>
@@ -242,6 +263,7 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
             </form>
         </div>
 
+        <!-- 🔹 Карточка: Выборочный запуск агентов (ОПТИМИЗИРОВАННАЯ) -->
         <div class="dev-card">
             <div class="dev-card__title">
                 <?= GetMessage('DEV_TOOLS_CARD_SELECTIVE_AGENTS') ?>
@@ -251,7 +273,8 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
             <form method="POST" id="agents-form">
                 <?= bitrix_sessid_post() ?>
 
-                <? if (!empty($agentsList)): ?>
+                <?php if (!empty($agentsList)): ?>
+                    <!-- Панель управления -->
                     <div class="agents-toolbar" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; align-items: center;">
                         <input type="text" id="agent-search" placeholder="🔍 Поиск по функции или модулю..."
                                style="flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
@@ -264,6 +287,7 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                         </button>
                     </div>
 
+                    <!-- Таблица агентов -->
                     <div style="overflow-x: auto; max-height: 400px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px;">
                         <table class="adm-list-table" style="width: 100%; min-width: 600px;">
                             <thead>
@@ -278,7 +302,7 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                             </tr>
                             </thead>
                             <tbody>
-                            <?
+                            <?php
                             $now = time();
                             foreach ($agentsList as $agent):
                                 $nextExec = MakeTimeStamp($agent['NEXT_EXEC'], 'FULL');
@@ -318,11 +342,11 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                                         <?= $agent['NEXT_EXEC'] ?>
                                     </td>
                                     <td>
-                                        <? if ($isOverdue): ?>
+                                        <?php if ($isOverdue): ?>
                                             <span class="dev-badge dev-badge--error" style="font-size: 10px;">⏰ Просрочен</span>
-                                        <? else: ?>
+                                        <?php else: ?>
                                             <span class="dev-badge dev-badge--success" style="font-size: 10px;">✓ В норме</span>
-                                        <? endif; ?>
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
                             <? endforeach; ?>
@@ -330,6 +354,7 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                         </table>
                     </div>
 
+                    <!-- Кнопка запуска -->
                     <div class="dev-row" style="margin-top: 15px; justify-content: flex-end; align-items: center;">
                 <span style="color: #666; font-size: 13px; margin-right: 15px;">
                     Выбрано: <strong id="selected-count" style="color: #2480c2;">0</strong> из <?= count($agentsList) ?>
@@ -397,19 +422,19 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                     </button>
                 </div>
 
-                <? $registeredLogs = DevToolsHelper::getRegisteredLogFiles(); ?>
-                <? if (!empty($registeredLogs)): ?>
+                <?php $registeredLogs = DevToolsHelper::getRegisteredLogFiles(); ?>
+                <?php if (!empty($registeredLogs)): ?>
                     <div style="margin-top: 8px; font-size: 12px; color: #666;">
                         <?= GetMessage('DEV_TOOLS_LOG_REGISTERED') ?>:
-                        <? foreach ($registeredLogs as $path => $label): ?>
+                        <?php foreach ($registeredLogs as $path => $label): ?>
                             <a href="#" onclick="document.querySelector('input[name=\'log_custom_path\']').value='<?= addslashes($path) ?>'; return false;"
                                style="margin-left: 5px; color: #2480c2;"><?= htmlspecialcharsbx($label) ?></a>
-                        <? endforeach; ?>
+                        <?php endforeach; ?>
                     </div>
-                <? endif; ?>
+                <?php endif; ?>
             </form>
 
-            <?
+            <?php
             $logPath = $_POST['log_custom_path'] ?? null;
             echo '<div class="dev-log">' . htmlspecialcharsbx(DevToolsHelper::getLastErrorLog(30, $logPath)) . '</div>';
             ?>
@@ -461,4 +486,4 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 
     </div>
 
-<?require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php'); ?>
+<?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php'); ?>

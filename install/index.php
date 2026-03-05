@@ -1,4 +1,4 @@
-<?
+<?php
 
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\ModuleManager;
@@ -21,9 +21,9 @@ class dev_tools extends CModule
     public function __construct()
     {
         $arModuleVersion = [];
-        $versionFile = __DIR__ . '/../version.php';
+        $versionFile = $_SERVER['DOCUMENT_ROOT'] . getLocalPath('modules/dev.tools/version.php');
 
-        if (file_exists($versionFile)) {
+        if ($versionFile && file_exists($versionFile)) {
             try {
                 include($versionFile);
             } catch (Throwable $e) {
@@ -49,6 +49,7 @@ class dev_tools extends CModule
             ModuleManager::registerModule($this->MODULE_ID);
             $this->installRights();
             $this->installAdminFiles();
+            \Bitrix\Main\Config\Option::delete($this->MODULE_ID);
             $APPLICATION->SetTitle(GetMessage('DEV_TOOLS_INSTALL_TITLE'));
             return true;
         } catch (Exception $e) {
@@ -86,7 +87,15 @@ class dev_tools extends CModule
             return false;
         }
 
-        $proxyContent = "<?php\n" . "/**\n * Proxy file for {$this->MODULE_ID} module\n * Auto-generated. Do not edit.\n */\n" . "require(\$_SERVER[\"DOCUMENT_ROOT\"] . \"/local/modules/{$this->MODULE_ID}/admin/dev_tools.php\");\n";
+        $proxyContent = "<?php\n" . 
+        "/**\n * Proxy file for {$this->MODULE_ID} module\n * Auto-generated. Do not edit.\n */\n" . 
+        "require_once(\$_SERVER[\"DOCUMENT_ROOT\"].\"/bitrix/modules/main/include/prolog_admin_before.php\");\n" . 
+        "\$path = getLocalPath(\"modules/{$this->MODULE_ID}/admin/dev_tools.php\");\n" .
+        "if (\$path) {\n" .
+        "    require(\$_SERVER[\"DOCUMENT_ROOT\"] . \$path);\n" .
+        "} else {\n" .
+        "    ShowError(\"Module {$this->MODULE_ID} not found.\");\n" .
+        "}\n";
 
         try {
             $result = file_put_contents($proxyPath, $proxyContent, LOCK_EX);

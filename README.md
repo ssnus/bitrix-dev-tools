@@ -17,13 +17,31 @@
 - PHP 7.4 или выше
 
 ## 🚀 Установка
-## 📥 Установка через консоль (curl)
 
-Если вы предпочитаете командную строку.
+Рекомендуемый способ установки — через `composer`. 
 
-### Быстрая установка
+### Вариант 1: Установка через Composer (Рекомендуется)
 
-Выполните последовательно следующие команды в терминале (находясь в корне сайта):
+1. **Настройте путь установки (Опционально)**
+По умолчанию composer установит модуль в `bitrix/modules/`. Если вы хотите, чтобы модуль находился в `local/modules/`, добавьте ключи `installer-paths` в корневой `composer.json` вашего проекта **до** установки модуля:
+```json
+{
+    "extra": {
+        "installer-paths": {
+            "local/modules/{$name}/": ["type:bitrix-module", "type:bitrix-theme"]
+        }
+    }
+}
+```
+
+2. **Установите пакет:**
+```bash
+composer require ssnus/bitrix-dev-tools
+```
+
+### Вариант 2: Установка через консоль (curl)
+
+Если вы предпочитаете командную строку без composer:
 
 ```bash
 # 1. Переходим в папку для модулей
@@ -41,21 +59,32 @@ mv bitrix-dev-tools-master dev.tools
 # 5. Удаляем архив
 rm dev.tools.zip
 ```
-### Далее: Через админку (рекомендуется)
-1. В админке перейдите: **Marketplace → Установленные решение**
+
+### ⚙️ Активация модуля в Битрикс
+Независимо от способа загрузки файлов (Composer или zip-архив), **модуль необходимо установить в панели управления Битрикс**:
+
+1. В админке перейдите: **Marketplace → Установленные решения**
 2. Найдите **«Инструменты разработчика»** и нажмите **Установить**
-3. ✅ Модуль автоматически создаст необходимые файлы
+3. ✅ Модуль автоматически создаст необходимые файлы и настройки доступов.
 4. Меню появится в разделе **Сервисы → Dev Tools**
 
-### Вариант 2: Вручную (если автоустановка не сработала)
+---
 
-Если после установки меню не появилось, создайте файл-прокси:
+### Если автоустановка не сработала (Hard fallback)
+
+Если после активации меню не появилось, создайте файл-прокси вручную:
 
 **Файл:** `/bitrix/admin/dev_tools.php`
 
 ```php
-<?
-require($_SERVER["DOCUMENT_ROOT"] . "/local/modules/dev.tools/admin/dev_tools.php");
+<?php
+require_once($_SERVER["DOCUMENT_ROOT"]."/bitrix/modules/main/include/prolog_admin_before.php");
+$path = getLocalPath("modules/dev.tools/admin/dev_tools.php");
+if ($path) {
+    require($_SERVER["DOCUMENT_ROOT"] . $path);
+} else {
+    ShowError("Module dev.tools not found");
+}
 ```
 
 ## ⚙️ Настройка после установки
@@ -64,12 +93,13 @@ require($_SERVER["DOCUMENT_ROOT"] . "/local/modules/dev.tools/admin/dev_tools.ph
 Если режим отладки не работает после установки, добавьте эту строку в файл `/local/php_interface/init.php`:
 
 ```php
-<?
+<?php
 if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) die();
 
 // Подключение DevTools
-if (file_exists($_SERVER["DOCUMENT_ROOT"] . "/local/modules/dev.tools/include.php")) {
-    require_once $_SERVER["DOCUMENT_ROOT"] . "/local/modules/dev.tools/include.php";
+$devToolsPath = getLocalPath("modules/dev.tools/include.php");
+if ($devToolsPath) {
+    require_once $_SERVER["DOCUMENT_ROOT"] . $devToolsPath;
 }
 ```
 ## 🎯 Использование

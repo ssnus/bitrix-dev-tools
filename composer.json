@@ -1,0 +1,41 @@
+{
+    "name": "ssnus/bitrix-dev-tools",
+    "description": "Инструменты разработчика для 1С-Битрикс: отладка, логирование, управление кешем",
+    "type": "bitrix-module",
+    "license": "MIT",
+    "keywords": [
+        "bitrix",
+        "devtools",
+        "debug",
+        "cache",
+        "logger"
+    ],
+    "homepage": "https://github.com/ssnus/bitrix-dev-tools",
+    "support": {
+        "issues": "https://github.com/ssnus/bitrix-dev-tools/issues",
+        "source": "https://github.com/ssnus/bitrix-dev-tools"
+    },
+    "authors": [
+        {
+            "name": "fx.ssnus",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": ">=7.4",
+        "composer/installers": "^1.12 || ^2.0"
+    },
+    "extra": {
+        "bitrix": {
+            "module_directory": "dev.tools"
+        },
+        "installer-name": "dev.tools"
+    },
+    "config": {
+        "allow-plugins": {
+            "composer/installers": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
