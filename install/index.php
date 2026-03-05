@@ -49,6 +49,7 @@ class dev_tools extends CModule
             ModuleManager::registerModule($this->MODULE_ID);
             $this->installRights();
             $this->installAdminFiles();
+            $this->installFiles();
             \Bitrix\Main\Config\Option::delete($this->MODULE_ID);
             $APPLICATION->SetTitle(GetMessage('DEV_TOOLS_INSTALL_TITLE'));
             return true;
@@ -65,6 +66,7 @@ class dev_tools extends CModule
 
         try {
             $this->uninstallAdminFiles();
+            $this->uninstallFiles();
             $this->uninstallRights();
             ModuleManager::unRegisterModule($this->MODULE_ID);
             $APPLICATION->SetTitle(GetMessage('DEV_TOOLS_UNINSTALL_TITLE'));
@@ -126,6 +128,20 @@ class dev_tools extends CModule
             AddMessage2Log('DevTools uninstallAdminFiles error: ' . $e->getMessage(), 'dev.tools');
             return false;
         }
+    }
+
+    public function installFiles()
+    {
+        CopyDirFiles(__DIR__ . '/../admin/styles', $_SERVER['DOCUMENT_ROOT'] . '/bitrix/css/' . $this->MODULE_ID, true, true);
+        CopyDirFiles(__DIR__ . '/../admin/scripts', $_SERVER['DOCUMENT_ROOT'] . '/bitrix/js/' . $this->MODULE_ID, true, true);
+        return true;
+    }
+
+    public function uninstallFiles()
+    {
+        DeleteDirFilesEx('/bitrix/css/' . $this->MODULE_ID);
+        DeleteDirFilesEx('/bitrix/js/' . $this->MODULE_ID);
+        return true;
     }
 
     public function hasModuleRightsTable()

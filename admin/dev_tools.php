@@ -19,8 +19,8 @@ if ($POST_RIGHT == 'D') {
     die();
 }
 
-$APPLICATION->SetAdditionalCSS(getLocalPath('modules/dev.tools/admin/styles/dev-tools.css'));
-\Bitrix\Main\Page\Asset::getInstance()->addJs(getLocalPath('modules/dev.tools/admin/scripts/agents.js'));
+$APPLICATION->SetAdditionalCSS('/bitrix/css/dev.tools/dev-tools.css');
+\Bitrix\Main\Page\Asset::getInstance()->addJs('/bitrix/js/dev.tools/agents.js');
 
 $MODULE_ID = 'dev.tools';
 $aMess = [];
