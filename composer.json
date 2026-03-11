@@ -25,6 +25,11 @@
         "php": ">=7.4",
         "composer/installers": "^1.12 || ^2.0"
     },
+    "autoload": {
+        "psr-4": {
+            "Ssnus\\DevTools\\": "lib/"
+        }
+    },
     "extra": {
         "bitrix": {
             "module_directory": "dev.tools"

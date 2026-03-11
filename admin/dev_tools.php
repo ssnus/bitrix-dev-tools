@@ -25,15 +25,15 @@ $APPLICATION->SetAdditionalCSS('/bitrix/css/dev.tools/dev-tools.css');
 $MODULE_ID = 'dev.tools';
 $aMess = [];
 
-if (!class_exists('DevToolsHelper')) {
+if (!class_exists('\Ssnus\DevTools\CacheManager')) {
     $modulePath = getLocalPath('modules/dev.tools/include.php');
     if ($modulePath) {
         require_once $_SERVER['DOCUMENT_ROOT'] . $modulePath;
     }
 }
 
-$debugMode = DevToolsHelper::isDebugMode();
-$cacheDisabled = DevToolsHelper::isCacheDisabled();
+$debugMode = \Ssnus\DevTools\DebugManager::isDebugMode();
+$cacheDisabled = \Ssnus\DevTools\CacheManager::isCacheDisabled();
 
 $agentsList = [];
 if (method_exists('CAgent', 'GetList')) {
@@ -113,17 +113,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                 ];
             }
 
-            DevToolsHelper::clearCache($cacheOptions);
+            \Ssnus\DevTools\CacheManager::clearCache($cacheOptions);
             $aMess[] = ['type' => 'success', 'text' => GetMessage('DEV_TOOLS_CACHE_CLEARED')];
         }
         elseif ($action === 'toggle_debug') {
             $newMode = !$debugMode;
-            DevToolsHelper::setDebugMode($newMode);
+            \Ssnus\DevTools\DebugManager::setDebugMode($newMode);
             LocalRedirect($APPLICATION->GetCurPageParam('dev_status=updated', ['dev_status']));
         }
         elseif ($action === 'toggle_cache') {
             $newDisabled = !$cacheDisabled;
-            DevToolsHelper::setCacheDisabled($newDisabled);
+            \Ssnus\DevTools\CacheManager::setCacheDisabled($newDisabled);
             $cacheDisabled = $newDisabled;
             $aMess[] = [
                 'type' => 'info',
@@ -131,13 +131,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             ];
         }
         elseif ($action === 'run_agents') {
-            DevToolsHelper::runAgents();
+            \Ssnus\DevTools\AgentManager::runAgents();
             $aMess[] = ['type' => 'success', 'text' => GetMessage('DEV_TOOLS_AGENTS_RUN')];
         }
         elseif ($action === 'run_selected_agents') {
             $selectedAgents = $_POST['agent_ids'] ?? [];
             if (!empty($selectedAgents)) {
-                $results = DevToolsHelper::runAgents($selectedAgents);
+                $results = \Ssnus\DevTools\AgentManager::runAgents($selectedAgents);
                 $successCount = count(array_filter($results, fn($r) => $r['success']));
                 $aMess[] = [
                     'type' => 'success',
@@ -422,7 +422,7 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                     </button>
                 </div>
 
-                <?php $registeredLogs = DevToolsHelper::getRegisteredLogFiles(); ?>
+                <?php $registeredLogs = \Ssnus\DevTools\LogManager::getRegisteredLogFiles(); ?>
                 <?php if (!empty($registeredLogs)): ?>
                     <div style="margin-top: 8px; font-size: 12px; color: #666;">
                         <?= GetMessage('DEV_TOOLS_LOG_REGISTERED') ?>:
@@ -436,7 +436,7 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 
             <?php
             $logPath = $_POST['log_custom_path'] ?? null;
-            echo '<div class="dev-log">' . htmlspecialcharsbx(DevToolsHelper::getLastErrorLog(30, $logPath)) . '</div>';
+            echo '<div class="dev-log">' . htmlspecialcharsbx(\Ssnus\DevTools\LogManager::getLastErrorLog(30, $logPath)) . '</div>';
             ?>
         </div>
 
